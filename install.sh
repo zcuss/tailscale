@@ -1,4 +1,3 @@
-cat << 'EOF' > install-tailscale.sh
 #!/bin/bash
 
 echo "============================================="
@@ -11,19 +10,19 @@ cd ~
 # 2. Unduh biner statis jika belum ada
 if [ ! -d "tailscale_1.66.4_amd64" ]; then
     echo "[*] Mengunduh biner statis Tailscale..."
-    wget https://pkgs.tailscale.com/stable/tailscale_1.66.4_amd64.tgz
+    wget -q https://pkgs.tailscale.com/stable/tailscale_1.66.4_amd64.tgz
     echo "[*] Mengekstrak arsip..."
-    tar -xzvf tailscale_1.66.4_amd64.tgz
+    tar -xzvf tailscale_1.66.4_amd64.tgz > /dev/null
     rm tailscale_1.66.4_amd64.tgz
 fi
 
 cd tailscale_1.66.4_amd64
 
-# 3. Jalankan daemon tailscaled di background jika belum aktif
+# 3. Jalankan daemon tailscaled secara independen agar tidak memutus pipa curl
 if ! pgrep -x "tailscaled" > /dev/null; then
     echo "[*] Menjalankan daemon Tailscale (Userspace Mode)..."
-    ./tailscaled --tun=userspace-networking --socks5-server=localhost:1055 &
-    sleep 2
+    ./tailscaled --tun=userspace-networking --socks5-server=localhost:1055 > /dev/null 2>&1 &
+    sleep 3
 else
     echo "[*] Daemon Tailscale sudah berjalan."
 fi
@@ -31,9 +30,9 @@ fi
 # 4. Ambil nama user aktif secara dinamis
 USER_AKTIF=$(whoami)
 
-# 5. Hubungkan ke Tailnet
+# 5. Hubungkan ke Tailnet (Gunakan flag --qr agar link otentikasi aman keluar di terminal)
 echo "[*] Memicu tautan otentikasi Tailscale..."
-./tailscale up --accept-dns=false --operator=$USER_AKTIF
+./tailscale up --accept-dns=false --operator=$USER_AKTIF --qr
 
 # 6. Aktifkan Fitur Tailscale SSH
 echo "[*] Mengaktifkan fitur Tailscale SSH..."
@@ -50,4 +49,3 @@ echo "---------------------------------------------"
 echo "Silakan remote dari CMD Windows Anda dengan mengetik:"
 echo "ssh $USER_AKTIF@$IP_TAILSCALE"
 echo "============================================="
-EOF
