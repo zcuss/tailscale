@@ -1,7 +1,7 @@
 #!/bin/bash
 
 echo "============================================="
-echo "Memulai Otomasi Instalasi Tailscale SSH (IDX)"
+echo "  Memulai Otomasi Koneksi Jaringan Tailscale "
 echo "============================================="
 
 # 1. Masuk ke direktori home
@@ -18,7 +18,7 @@ fi
 
 cd tailscale_1.66.4_amd64
 
-# 3. Jalankan daemon tailscaled secara independen agar tidak memutus pipa curl
+# 3. Jalankan daemon tailscaled secara independen
 if ! pgrep -x "tailscaled" > /dev/null; then
     echo "[*] Menjalankan daemon Tailscale (Userspace Mode)..."
     ./tailscaled --tun=userspace-networking --socks5-server=localhost:1055 > /dev/null 2>&1 &
@@ -27,25 +27,29 @@ else
     echo "[*] Daemon Tailscale sudah berjalan."
 fi
 
-# 4. Ambil nama user aktif secara dinamis
-USER_AKTIF=$(whoami)
-
-# 5. Hubungkan ke Tailnet (Gunakan flag --qr agar link otentikasi aman keluar di terminal)
+# 4. Hubungkan ke Tailnet murni sebagai jembatan jaringan (TANPA flag --ssh bawaan)
 echo "[*] Memicu tautan otentikasi Tailscale..."
-./tailscale up --accept-dns=false --operator=$USER_AKTIF --qr
+./tailscale up --accept-dns=false --qr
 
-# 6. Aktifkan Fitur Tailscale SSH
-echo "[*] Mengaktifkan fitur Tailscale SSH..."
-./tailscale set --ssh --operator=$USER_AKTIF
+# 5. Buat Password Baru untuk User Aktif Tuan agar bisa diremote
+USER_AKTIF=$(whoami)
+echo "[*] Menyetel password SSH untuk user: $USER_AKTIF"
+echo "$USER_AKTIF:zcusclaw123" | sudo chpasswd
+
+# 6. Jalankan Server OpenSSH internal pada Port kustom (misal: 2222)
+echo "[*] Memulai ulang Server OpenSSH lokal..."
+sudo ssh-keygen -A > /dev/null 2>&1
+sudo /usr/sbin/sshd -p 2222
 
 # 7. Tampilkan Informasi Akhir
 IP_TAILSCALE=$(./tailscale ip -4)
 echo "============================================="
 echo "       INSTALASI SELESAI & SUKSES!           "
 echo "============================================="
-echo "User Lokal Anda  : $USER_AKTIF"
 echo "IP Tailscale Anda: $IP_TAILSCALE"
+echo "Port SSH Anda    : 2222"
+echo "Password SSH Anda: zcusclaw123"
 echo "---------------------------------------------"
 echo "Silakan remote dari CMD Windows Anda dengan mengetik:"
-echo "ssh $USER_AKTIF@$IP_TAILSCALE"
+echo "ssh $USER_AKTIF@$IP_TAILSCALE -p 2222"
 echo "============================================="
