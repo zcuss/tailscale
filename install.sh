@@ -27,19 +27,24 @@ else
     echo "[*] Daemon Tailscale sudah berjalan."
 fi
 
-# 4. Hubungkan ke Tailnet murni sebagai jembatan jaringan (TANPA flag --ssh bawaan)
+# 4. Hubungkan ke Tailnet
 echo "[*] Memicu tautan otentikasi Tailscale..."
 ./tailscale up --accept-dns=false --qr
 
-# 5. Buat Password Baru untuk User Aktif Tuan agar bisa diremote
+# 5. Buat Password Baru untuk User Aktif Tuan
 USER_AKTIF=$(whoami)
 echo "[*] Menyetel password SSH untuk user: $USER_AKTIF"
 echo "$USER_AKTIF:zcusclaw123" | sudo chpasswd
 
-# 6. Jalankan Server OpenSSH internal pada Port kustom (misal: 2222)
+# 6. Perbaikan Direktori Runtime SSHD & Jalankan Server OpenSSH
 echo "[*] Memulai ulang Server OpenSSH lokal..."
+sudo mkdir -p /var/run/sshd
+sudo chmod 0755 /var/run/sshd
 sudo ssh-keygen -A > /dev/null 2>&1
-sudo /usr/sbin/sshd -p 2222
+
+# Matikan sshd lama jika ada, lalu jalankan yang baru di port 2222
+sudo pkill -f "sshd -p 2222"
+sudo /usr/sbin/sshd -p 2222 -o "PasswordAuthentication=yes" -o "PermitRootLogin=yes"
 
 # 7. Tampilkan Informasi Akhir
 IP_TAILSCALE=$(./tailscale ip -4)
