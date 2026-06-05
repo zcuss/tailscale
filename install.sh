@@ -61,7 +61,7 @@ echo ""
 echo "  Tools tersedia: node, npm, npx, pnpm"
 
 # ============================================================
-# BAGIAN 2: Tailscale Installer
+# BAGIAN 2: Tailscale Installer (TANPA SOCKS5)
 # ============================================================
 
 echo ""
@@ -76,7 +76,7 @@ TAILSCALE="$TAILSCALE_DIR/tailscale"
 OPERATOR="${OPERATOR:-user}"
 TIMEOUT_AUTH=120
 
-# 1. Unduh dan ekstrak jika belum ada
+# 1. Unduh dan ekstrak
 if [ ! -f "$TAILSCALED" ]; then
     echo "[1/5] Mengunduh Tailscale biner statis..."
     cd "$HOME"
@@ -93,26 +93,23 @@ fi
 
 cd "$TAILSCALE_DIR"
 
-# 2. Jalankan tailscaled (userspace) — gunakan setsid untuk memisahkan dari shell
-echo "[2/5] Menjalankan tailscaled (userspace-networking)..."
+# 2. Jalankan tailscaled TANPA socks5
+echo "[2/5] Menjalankan tailscaled (userspace-networking, tanpa socks5)..."
 
-# Matikan hanya proses tailscaled yang sudah ada
 TAILSCALED_PID=$(pgrep -f "tailscaled" 2>/dev/null || true)
 if [ -n "$TAILSCALED_PID" ]; then
     kill "$TAILSCALED_PID" 2>/dev/null || true
     sleep 1
 fi
 
-# Jalankan tailscaled dalam sesi terpisah (setsid) agar tidak terkena sinyal shell
-setsid "$TAILSCALED" --tun=userspace-networking --socks5-server=localhost:1055 > /tmp/tailscaled.log 2>&1 &
+setsid "$TAILSCALED" --tun=userspace-networking --state="$HOME/.tailscale-state/tailscaled.state" > /tmp/tailscaled.log 2>&1 &
 TAILSCALED_PID=$!
 echo "tailscaled dijalankan (PID $TAILSCALED_PID)"
 
-# Tunggu hingga daemon siap
 echo "Menunggu daemon siap..."
 for i in $(seq 1 15); do
     sleep 1
-    if "$TAILSCALE" status >/dev/null 2>&1; then
+    if "$TAILSCALE" --socket="$HOME/.tailscale-state/tailscaled.sock" status >/dev/null 2>&1; then
         echo "Daemon siap setelah ${i} detik."
         break
     fi
@@ -120,7 +117,7 @@ done
 
 # 3. Koneksi ke Tailscale
 echo "[3/5] Menghubungkan ke akun Tailscale..."
-"$TAILSCALE" up --accept-dns=false --operator="$OPERATOR"
+"$TAILSCALE" --socket="$HOME/.tailscale-state/tailscaled.sock" up --accept-dns=false --operator="$OPERATOR"
 
 echo ""
 echo "=============================================="
@@ -135,7 +132,7 @@ read -p "Tekan Enter jika sudah selesai otorisasi..."
 echo "[4/5] Memeriksa koneksi..."
 elapsed=0
 while true; do
-    ip=$("$TAILSCALE" ip -4 2>/dev/null || true)
+    ip=$("$TAILSCALE" --socket="$HOME/.tailscale-state/tailscaled.sock" ip -4 2>/dev/null || true)
     if [ -n "$ip" ] && [ "$ip" != "null" ]; then
         echo "Terhubung dengan IP: $ip"
         break
@@ -144,14 +141,13 @@ while true; do
     elapsed=$((elapsed + 2))
     if [ $elapsed -ge $TIMEOUT_AUTH ]; then
         echo "ERROR: Perangkat belum terhubung dalam ${TIMEOUT_AUTH} detik."
-        echo "Coba jalankan kembali skrip atau periksa status di admin console Tailscale."
         exit 1
     fi
 done
 
 # 5. Aktifkan Tailscale SSH
 echo "[5/5] Mengaktifkan Tailscale SSH..."
-"$TAILSCALE" set --ssh --operator="$OPERATOR"
+"$TAILSCALE" --socket="$HOME/.tailscale-state/tailscaled.sock" set --ssh --operator="$OPERATOR"
 
 # 6. Informasi koneksi
 echo ""
@@ -159,7 +155,7 @@ echo "=============================================="
 echo " Instalasi selesai! "
 echo " Gunakan informasi berikut untuk SSH dari Windows:"
 echo ""
-TAILSCALE_IP=$("$TAILSCALE" ip -4 2>/dev/null || echo "tidak ditemukan")
+TAILSCALE_IP=$("$TAILSCALE" --socket="$HOME/.tailscale-state/tailscaled.sock" ip -4 2>/dev/null || echo "tidak ditemukan")
 CURRENT_USER=$(whoami)
 echo "   Perintah SSH:"
 echo "   ssh ${CURRENT_USER}@${TAILSCALE_IP}"
