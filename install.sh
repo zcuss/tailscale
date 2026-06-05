@@ -1,18 +1,81 @@
 #!/usr/bin/env bash
-# Tailscale Installer untuk Google Firebase Studio (IDX) tanpa sudo
-# Jalankan: bash -c "$(curl -fsSL https://raw.githubusercontent.com/zcuss/tailscale/Main/install.sh)"
+# ============================================================
+# Zero's Firebase Studio Full Bootstrap + Tailscale Installer
+# Usage: bash -c "$(curl -fsSL https://raw.githubusercontent.com/zcuss/tailscale/Main/install.sh)"
+# ============================================================
 
 set -e
 
+echo "=============================================="
+echo " Zero's Firebase Studio Environment Setup"
+echo "=============================================="
+
+# ============================================================
+# BAGIAN 1: Nix Store PATH & Alias Bootstrap
+# ============================================================
+
+echo ""
+echo "[Bootstrap 1/3] Mencari Nix store PATH dari environment system..."
+
+NIX_PATH_FULL=$(cat /etc/environment 2>/dev/null | grep "^PATH=" | cut -d= -f2-)
+
+if [ -z "$NIX_PATH_FULL" ]; then
+    NIX_PATH_FULL=$(su - user -c 'echo $PATH' 2>/dev/null || true)
+fi
+
+if [ -z "$NIX_PATH_FULL" ]; then
+    NODE_STORE=$(find /nix/store -maxdepth 2 -name 'nodejs-*' -type d 2>/dev/null | head -1)
+    IDX_STORE=$(find /nix/store -maxdepth 2 -name 'idx-builtins-*' -type d 2>/dev/null | head -1)
+    NIX_PATH_FULL="${NODE_STORE}/bin:/usr/bin:/bin:/home/user/.local/bin"
+    [ -n "$IDX_STORE" ] && NIX_PATH_FULL="${NIX_PATH_FULL}:${IDX_STORE}/bin"
+fi
+
+echo "  → PATH: ${NIX_PATH_FULL}"
+
+echo "[Bootstrap 2/3] Menulis ke ~/.bashrc..."
+
+cat >> ~/.bashrc << NIXPATH
+# --- Zero: Firebase Studio Nix store PATH (auto-detected) ---
+export PATH="${NIX_PATH_FULL}:\$PATH"
+NIXPATH
+
+cat >> ~/.bashrc << 'ALIASES'
+# --- Zero: Bypass EROFS Nix store ---
+alias pnpm="npx pnpm"
+alias yarn="npx yarn"
+alias pnpx="npx pnpx"
+ALIASES
+
+echo "[Bootstrap 3/3] Menerapkan dan verifikasi..."
+
+export PATH="${NIX_PATH_FULL}:$PATH"
+alias pnpm="npx pnpm" 2>/dev/null || true
+
+if npx pnpm -v > /dev/null 2>&1; then
+    echo "  ✓ Setup berhasil. pnpm v$(npx pnpm -v) siap."
+    echo "  ✓ Tutup terminal ini dan buka yang baru, atau jalankan: source ~/.bashrc"
+else
+    echo "  ⚠ pnpm belum terverifikasi. Pastikan Node.js tersedia, lalu jalankan: source ~/.bashrc"
+fi
+
+echo ""
+echo "  Tools tersedia: node, npm, npx, pnpm"
+
+# ============================================================
+# BAGIAN 2: Tailscale Installer
+# ============================================================
+
+echo ""
+echo "=============================================="
+echo " Tailscale Installer for Google IDX"
+echo "=============================================="
+
 TAILSCALE_VERSION="1.66.4"
 TAILSCALE_DIR="$HOME/tailscale-${TAILSCALE_VERSION}"
-TAILSCALE_BIN_DIR="$TAILSCALE_DIR"
-TAILSCALED="$TAILSCALE_BIN_DIR/tailscaled"
-TAILSCALE="$TAILSCALE_BIN_DIR/tailscale"
+TAILSCALED="$TAILSCALE_DIR/tailscaled"
+TAILSCALE="$TAILSCALE_DIR/tailscale"
 OPERATOR="${OPERATOR:-user}"
-TIMEOUT_AUTH=120  # detik menunggu otorisasi
-
-echo "=== Tailscale Installer for Google IDX ==="
+TIMEOUT_AUTH=120
 
 # 1. Unduh dan ekstrak jika belum ada
 if [ ! -f "$TAILSCALED" ]; then
@@ -21,7 +84,6 @@ if [ ! -f "$TAILSCALED" ]; then
     wget -q "https://pkgs.tailscale.com/stable/tailscale_${TAILSCALE_VERSION}_amd64.tgz" -O tailscale.tgz
     tar -xzf tailscale.tgz
     rm tailscale.tgz
-    # rename folder standar
     if [ -d "tailscale_${TAILSCALE_VERSION}_amd64" ]; then
         mv "tailscale_${TAILSCALE_VERSION}_amd64" "$TAILSCALE_DIR"
     fi
@@ -30,27 +92,34 @@ else
     echo "[1/5] Biner Tailscale sudah ada, lewati unduh."
 fi
 
-cd "$TAILSCALE_BIN_DIR"
+cd "$TAILSCALE_DIR"
 
-# 2. Jalankan tailscaled (userspace)
+# 2. Jalankan tailscaled (userspace) — diperbaiki
 echo "[2/5] Menjalankan tailscaled (userspace-networking)..."
-# Hentikan proses lama jika ada
-pkill -f "tailscaled" 2>/dev/null || true
-sleep 1
-# Jalankan di background
-nohup "$TAILSCALED" --tun=userspace-networking --socks5-server=localhost:1055 &>/tmp/tailscaled.log &
-echo "tailscaled dijalankan (PID $!)"
+
+# Matikan hanya proses tailscaled yang sudah ada, JANGAN bunuh shell sendiri
+TAILSCALED_PID=$(pgrep -f "tailscaled" 2>/dev/null || true)
+if [ -n "$TAILSCALED_PID" ]; then
+    kill "$TAILSCALED_PID" 2>/dev/null || true
+    sleep 1
+fi
+
+# Jalankan tailscaled di background dengan cara yang lebih aman
+nohup "$TAILSCALED" --tun=userspace-networking --socks5-server=localhost:1055 > /tmp/tailscaled.log 2>&1 &
+TAILSCALED_PID=$!
+echo "tailscaled dijalankan (PID $TAILSCALED_PID)"
 
 # Tunggu hingga daemon siap
 echo "Menunggu daemon siap..."
-for i in {1..10}; do
+for i in $(seq 1 15); do
+    sleep 1
     if "$TAILSCALE" status >/dev/null 2>&1; then
+        echo "Daemon siap setelah ${i} detik."
         break
     fi
-    sleep 1
 done
 
-# 3. Koneksi ke Tailscale + Jeda Otorisasi Manual
+# 3. Koneksi ke Tailscale
 echo "[3/5] Menghubungkan ke akun Tailscale..."
 "$TAILSCALE" up --accept-dns=false --operator="$OPERATOR"
 
@@ -63,7 +132,7 @@ echo "  ENTER untuk melanjutkan."
 echo "=============================================="
 read -p "Tekan Enter jika sudah selesai otorisasi..."
 
-# 4. Verifikasi koneksi setelah Tuan konfirmasi
+# 4. Verifikasi koneksi
 echo "[4/5] Memeriksa koneksi..."
 elapsed=0
 while true; do
@@ -75,7 +144,7 @@ while true; do
     sleep 2
     elapsed=$((elapsed + 2))
     if [ $elapsed -ge $TIMEOUT_AUTH ]; then
-        echo "ERROR: Setelah menekan Enter, perangkat belum terhubung dalam ${TIMEOUT_AUTH} detik."
+        echo "ERROR: Perangkat belum terhubung dalam ${TIMEOUT_AUTH} detik."
         echo "Coba jalankan kembali skrip atau periksa status di admin console Tailscale."
         exit 1
     fi
