@@ -53,9 +53,8 @@ alias pnpm="npx pnpm" 2>/dev/null || true
 
 if npx pnpm -v > /dev/null 2>&1; then
     echo "  ✓ Setup berhasil. pnpm v$(npx pnpm -v) siap."
-    echo "  ✓ Tutup terminal ini dan buka yang baru, atau jalankan: source ~/.bashrc"
 else
-    echo "  ⚠ pnpm belum terverifikasi. Pastikan Node.js tersedia, lalu jalankan: source ~/.bashrc"
+    echo "  ⚠ pnpm belum terverifikasi. Pastikan Node.js tersedia."
 fi
 
 echo ""
@@ -94,18 +93,18 @@ fi
 
 cd "$TAILSCALE_DIR"
 
-# 2. Jalankan tailscaled (userspace) — diperbaiki
+# 2. Jalankan tailscaled (userspace) — gunakan setsid untuk memisahkan dari shell
 echo "[2/5] Menjalankan tailscaled (userspace-networking)..."
 
-# Matikan hanya proses tailscaled yang sudah ada, JANGAN bunuh shell sendiri
+# Matikan hanya proses tailscaled yang sudah ada
 TAILSCALED_PID=$(pgrep -f "tailscaled" 2>/dev/null || true)
 if [ -n "$TAILSCALED_PID" ]; then
     kill "$TAILSCALED_PID" 2>/dev/null || true
     sleep 1
 fi
 
-# Jalankan tailscaled di background dengan cara yang lebih aman
-nohup "$TAILSCALED" --tun=userspace-networking --socks5-server=localhost:1055 > /tmp/tailscaled.log 2>&1 &
+# Jalankan tailscaled dalam sesi terpisah (setsid) agar tidak terkena sinyal shell
+setsid "$TAILSCALED" --tun=userspace-networking --socks5-server=localhost:1055 > /tmp/tailscaled.log 2>&1 &
 TAILSCALED_PID=$!
 echo "tailscaled dijalankan (PID $TAILSCALED_PID)"
 
